@@ -358,6 +358,7 @@ def _random_poly(_type, dim):
 
     random_poly_shape = [2 for i in range(dim)]
 
+<<<<<<< HEAD
     # random_poly_coeff = np.zeros(tuple(random_poly_shape), dtype=int)
     # for var in _vars:
     #     random_poly_coeff[var] = np.random.randint(1000)
@@ -367,6 +368,12 @@ def _random_poly(_type, dim):
 
     coeffs = np.random.rand(dim)
     coeffs /= np.linalg.norm(coeffs)
+=======
+    random_poly_coeff = np.zeros(tuple(random_poly_shape), dtype=int)
+    np.random.seed(42)
+    coeffs = np.random.randn(dim)
+    coeffs /= norm(coeffs)
+>>>>>>> 5b91958b8093ddeaa96b7b59847e6c381fa26d4c
     for i,var in enumerate(_vars):
         random_poly_coeff[var] = coeffs[i]
 
