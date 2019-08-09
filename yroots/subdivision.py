@@ -11,7 +11,6 @@ from numpy.fft.fftpack import fftn
 from yroots.OneDimension import divCheb,divPower,multCheb,multPower,solve
 from yroots.Division import division
 from yroots.Multiplication import multiplication
-from yroots.NewDivision import divisionNew
 from yroots.utils import clean_zeros_from_matrix, slice_top, MacaulayError, get_var_list
 from yroots.polynomial import MultiCheb
 from yroots.IntervalChecks import IntervalData
@@ -361,7 +360,7 @@ def get_subintervals(a,b,dimensions,interval_data,polys,change_sign,approx_tol,c
     else:
         return subintervals
 
-def full_cheb_approximate(f,a,b,deg,tol,good_deg=None):
+def full_cheb_approximate(f,a,b,deg,approx_tol,good_deg=None):
     """Gives the full chebyshev approximation and checks if it's good enough.
 
     Called recursively.
@@ -376,7 +375,7 @@ def full_cheb_approximate(f,a,b,deg,tol,good_deg=None):
         The upper bound on the interval.
     deg : int
         The degree to approximate with.
-    tol : float
+    approx_tol : float
         How small the high degree terms must be to consider the approximation accurate.
     good_deg : numpy array
         Interpoation degree that is guaranteed to give an approximation valid to within approx_tol.
@@ -396,19 +395,20 @@ def full_cheb_approximate(f,a,b,deg,tol,good_deg=None):
     coeff, multiplier = interval_approximate_nd(f,a,b,deg)
     coeff2, bools, multiplier = interval_approximate_nd(f,a,b,deg*2,return_bools=True, multiplier=multiplier)
     coeff2[slice_top(coeff)] -= coeff
-    if np.sum(np.abs(coeff2)) > tol:
+    if np.sum(np.abs(coeff2)) > approx_tol:
         #Find the directions to subdivide
         dim = len(a)
-#         div_dimensions = []
-#         slices = [slice(0,None,None)]*dim
-#         for d in range(dim):
-#             slices[d] = slice(deg+1,None,None)
-#             if np.sum(np.abs(coeff2[tuple(slices)])) > tol/dim:
-#                 div_dimensions.append(d)
-#             slices[d] = slice(0,None,None)
-#         if len(div_dimensions) == 0:
-#             div_dimensions.append(0)
-#         return None, np.array(div_dimensions)
+        # TODO: Intelligent Subdivision.
+        # div_dimensions = []
+        # slices = [slice(0,None,None)]*dim
+        # for d in range(dim):
+        #     slices[d] = slice(deg+1,None,None)
+        #     if np.sum(np.abs(coeff2[tuple(slices)])) > approx_tol/dim:
+        #         div_dimensions.append(d)
+        #     slices[d] = slice(0,None,None)
+        # if len(div_dimensions) == 0:
+        #     div_dimensions.append(0)
+        # return None, np.array(div_dimensions)
         return None, np.arange(dim)
     else:
         return coeff, bools
@@ -435,7 +435,7 @@ def good_zeros_nd(zeros, imag_tol = 1.e-5, real_tol = 1.e-5):
     good_zeros = good_zeros[np.all(np.abs(good_zeros) <= 1 + real_tol,axis = 1)]
     return good_zeros.real
 
-def subdivision_solve_nd(funcs,a,b,deg,interval_data,approx_tol=1.e-4,solve_tol=1.e-8, polish=False, good_degs=None, level=0, max_level=20):
+def subdivision_solve_nd(funcs,a,b,deg,interval_data,approx_tol=1.e-5,solve_tol=1.e-8, polish=False, good_degs=None, level=0, max_level=20):
     """Finds the common zeros of the given functions.
 
     Parameters
@@ -466,10 +466,17 @@ def subdivision_solve_nd(funcs,a,b,deg,interval_data,approx_tol=1.e-4,solve_tol=
         The real zeros of the functions in the interval [a,b]
     """
     if level > max_level:
+        # TODO Refine case where there may be a root and it goes too deep.
         interval_data.track_interval("Too Deep", [a, b])
+        # # Find residuals of the midpoint of the interval.
+        # residual_samples = list()
+        # for func in funcs:
+        #     residual_samples.append(func(*(np.array(a) + np.array(b))/2))
+        # # If all the residuals are within the tolerance, return midpoint approximation.
+        # if np.all(residual < solve_tol for residual in residual_samples):
+        #     return (np.array(a) + np.array(b))/2
         return np.zeros([0,len(a)])
-#     print("Enter Function level:{}".format(level))
-#     print(a,b)
+
     cheb_approx_list = []
     interval_data.print_progress()
     dim = len(a)
@@ -505,8 +512,8 @@ def subdivision_solve_nd(funcs,a,b,deg,interval_data,approx_tol=1.e-4,solve_tol=
 #     print([coeff.shape[0] for coeff in coeffs])
     if np.all(np.array([coeff.shape[0] for coeff in coeffs]) == 2):
 #         print("Linear")
-        if approx_tol > 1.e-6:
-            return subdivision_solve_nd(funcs,a,b,deg,interval_data,1.e-8,1.e-8,polish,level=level)
+#        if approx_tol > 1.e-6:
+#            return subdivision_solve_nd(funcs,a,b,deg,interval_data,1.e-8,1.e-8,polish,level=level)
         A = np.zeros([dim,dim])
         B = np.zeros(dim)
         for row in range(dim):
@@ -560,9 +567,7 @@ def subdivision_solve_nd(funcs,a,b,deg,interval_data,approx_tol=1.e-4,solve_tol=
             return np.vstack([subdivision_solve_nd(funcs,interval[0],interval[1],deg,interval_data,\
                                                    approx_tol,solve_tol,polish,good_degs,level=level+1) for interval in intervals])
 
-    if np.any(np.array([coeff.shape[0] for coeff in coeffs]) > 5):
-        divisor_var = -1
-    if divisor_var < 0:
+    if np.any(np.array([coeff.shape[0] for coeff in coeffs]) > 5) or divisor_var < 0:
         #Subdivide but run some checks on the intervals first
         intervals = get_subintervals(a,b,np.arange(dim),interval_data,cheb_approx_list,\
                                              change_sign,approx_tol,True)
@@ -571,16 +576,16 @@ def subdivision_solve_nd(funcs,a,b,deg,interval_data,approx_tol=1.e-4,solve_tol=
         else:
             good_degs = [coeff.shape[0] - 1 for coeff in coeffs]
             return np.vstack([subdivision_solve_nd(funcs,interval[0],interval[1],deg,interval_data,\
-                                                   approx_tol,solve_tol,polish,good_degs,level=level+1) for interval in intervals])
+                                                   approx_tol,solve_tol,polish,good_degs,level=level+1)\
+                                                   for interval in intervals])
 
     polys = [MultiCheb(coeff, lead_term = [coeff.shape[0]-1], clean_zeros = False) for coeff in coeffs]
     
-    zeros = multiplication(polys, tol=solve_tol)
-#     zeros = division(polys,divisor_var,solve_tol)
-    
+    # zeros = division(polys,divisor_var,solve_tol)
+    zeros = multiplication(polys, approx_tol=approx_tol, solve_tol=solve_tol)
     if not isinstance(zeros, int):
         zeros = np.array(zeros)
-        interval_data.track_interval("Multiplication", [a,b])
+        interval_data.track_interval("Spectral", [a,b])
         if len(zeros) == 0:
             return np.zeros([0,dim])
         if polish:
@@ -589,26 +594,27 @@ def subdivision_solve_nd(funcs,a,b,deg,interval_data,approx_tol=1.e-4,solve_tol=
         else:
             return transform(good_zeros_nd(zeros),a,b)
     else:
-        #When using multiplication comment out the following
-#         divisor_var += 1
-#         while divisor_var < dim:
-#             if not good_direc(coeffs,divisor_var,solve_tol):
-#                 divisor_var += 1
-#                 continue
-#             zeros = division(polys, divisor_var, solve_tol)
-#             if isinstance(zeros, int):
-#                 divisor_var += 1
-#                 continue
-#             zeros = np.array(zeros)
-#             interval_data.track_interval("Division", [a,b])
-#             if len(zeros) == 0:
-#                 return np.zeros([0,dim])
-#             if polish:
-#                 polish_tol = (b[0]-a[0])/10
-#                 return polish_zeros(transform(good_zeros_nd(zeros),a,b),funcs,polish_tol)
-#             else:
-#                 return transform(good_zeros_nd(zeros),a,b)
-        #Comment out up to here when using multiplication
+        # COMMENT OUT IF NOT USING DIVISION
+        # divisor_var += 1
+        # while divisor_var < dim:
+        #     if not good_direc(coeffs,divisor_var,solve_tol):
+        #         divisor_var += 1
+        #         continue
+        #     zeros = division(polys, divisor_var, solve_tol)
+        #     if isinstance(zeros, int):
+        #         divisor_var += 1
+        #         continue
+        #     zeros = np.array(zeros)
+        #     interval_data.track_interval("Division", [a,b])
+        #     if len(zeros) == 0:
+        #         return np.zeros([0,dim])
+        #     if polish:
+        #         polish_tol = (b[0]-a[0])
+        #         return polish_zeros(transform(good_zeros_nd(zeros),a,b),funcs,polish_tol)
+        #     else:
+        #         return transform(good_zeros_nd(zeros),a,)b
+        # END COMMENT OUT FOR DIVISION
+
         #Subdivide but run some checks on the intervals first
         intervals = get_subintervals(a,b,np.arange(dim),interval_data,cheb_approx_list,change_sign,\
                                              approx_tol,check_subintervals=True)
@@ -679,7 +685,7 @@ def polish_zeros(zeros, funcs, tol=1.e-1):
         The polished zeros.
     """
     import warnings
-    warnings.warn("Polishing may return duplicate zeros. Tell Erik to not be lazy and fix this.")
+    warnings.warn("Polishing may return duplicate zeros.")
     
     if len(zeros) == 0:
         return zeros
@@ -691,8 +697,8 @@ def polish_zeros(zeros, funcs, tol=1.e-1):
         b = np.array(zero) + 1.1*tol #Keep the root away from 0
         interval_data = IntervalData(a,b)
         interval_data.polishing = True
-        polished_zero = subdivision_solve_nd(funcs,a,b,5,interval_data,approx_tol=1.e-4,\
-                                                 solve_tol=1.e-8,polish=False)
+        polished_zero = subdivision_solve_nd(funcs,a,b,5,interval_data,approx_tol=1.e-8,\
+                                                 solve_tol=1.e-12,polish=False)
         polished_zeros.append(polished_zero)
     return np.vstack(polished_zeros)
 
@@ -880,10 +886,10 @@ def subdivision_solve_1d(f,a,b,interval_data,cheb_approx_tol=1.e-5,max_degree=12
                 return np.zeros([0])
             #Division is faster after degree 75
             if cur_deg > 75:
-                interval_data.track_interval('Multiplication', [a,b])
+                interval_data.track_interval('Spectral', [a,b])
                 return transform(good_zeros_1d(divCheb(coeffs)),a,b)
             else:
-                interval_data.track_interval('Multiplication', [a,b])
+                interval_data.track_interval('Spectral', [a,b])
                 return transform(good_zeros_1d(multCheb(np.trim_zeros(coeffs.copy(),trim='b'))),a,b)
         initial_approx = coeffs2N
         cur_deg*=2
